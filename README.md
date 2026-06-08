@@ -1,4 +1,4 @@
-# PetLinker — Backend Assignment Submission
+# PetLinker
 
 Full-stack REST API with **JWT authentication**, **role-based access (user / staff)**, and **CRUD** on rescue reports. Includes a React UI for testing all flows.
 
