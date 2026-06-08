@@ -3,17 +3,13 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { pool } from '../db.js'
 import { verifyToken } from '../middleware/auth.js'
+import { handleValidation } from '../middleware/validate.js'
+import { signupValidators, loginValidators } from '../validators/authValidators.js'
 
 const router = Router()
 
-router.post('/signup', async (req, res) => {
+router.post('/signup', signupValidators, handleValidation, async (req, res) => {
   const { name, email, password, role } = req.body
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ message: 'All fields are required.' })
-  }
-  if (!['user', 'staff'].includes(role)) {
-    return res.status(400).json({ message: 'Role must be user or staff.' })
-  }
 
   try {
     const existing = await pool.query('SELECT id FROM app_user WHERE email = $1', [email])
@@ -27,17 +23,22 @@ router.post('/signup', async (req, res) => {
       [name, email, passwordHash, role],
     )
 
+    // Create adopter profile for regular users
+    if (role === 'user') {
+      await pool.query(
+        'INSERT INTO adopter (name, address, phone, email) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO NOTHING',
+        [name, '', '', email],
+      )
+    }
+
     return res.status(201).json({ message: 'Signup successful. Please login.' })
   } catch (error) {
     return res.status(500).json({ message: 'Signup failed.', error: error.message })
   }
 })
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginValidators, handleValidation, async (req, res) => {
   const { email, password, role } = req.body
-  if (!email || !password || !role) {
-    return res.status(400).json({ message: 'All fields are required.' })
-  }
 
   try {
     const result = await pool.query(
@@ -82,4 +83,3 @@ router.get('/me', verifyToken, async (req, res) => {
 })
 
 export default router
-

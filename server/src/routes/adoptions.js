@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import { pool } from '../db.js'
-import { verifyToken } from '../middleware/auth.js'
+import { verifyToken, requireStaff } from '../middleware/auth.js'
 
 const router = Router()
 
-router.get('/', verifyToken, async (_req, res) => {
+router.get('/', verifyToken, requireStaff, async (_req, res) => {
   try {
     const result = await pool.query(
       `SELECT
@@ -46,7 +46,7 @@ router.get('/mine', verifyToken, async (req, res) => {
   }
 })
 
-router.patch('/:id/status', verifyToken, async (req, res) => {
+router.patch('/:id/status', verifyToken, requireStaff, async (req, res) => {
   const adoptionId = Number(req.params.id)
   const { status } = req.body
   if (!adoptionId) return res.status(400).json({ message: 'Invalid adoption ID.' })

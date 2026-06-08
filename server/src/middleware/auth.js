@@ -16,3 +16,9 @@ export function verifyToken(req, res, next) {
   }
 }
 
+export function requireStaff(req, res, next) {
+  if (req.user?.role !== 'staff') {
+    return res.status(403).json({ message: 'Staff access required.' })
+  }
+  return next()
+}

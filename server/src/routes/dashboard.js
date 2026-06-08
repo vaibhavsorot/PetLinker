@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import { pool } from '../db.js'
-import { verifyToken } from '../middleware/auth.js'
+import { verifyToken, requireStaff } from '../middleware/auth.js'
 
 const router = Router()
 
-router.get('/', verifyToken, async (_req, res) => {
+router.get('/', verifyToken, requireStaff, async (_req, res) => {
   try {
     const [animalsCount, pendingAdoptions, activeRescues, monthlyDonations] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM animal'),

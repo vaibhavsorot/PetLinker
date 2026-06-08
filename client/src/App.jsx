@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 
-const SESSION_KEY = 'awo_session'
-const TOKEN_KEY = 'awo_token'
-const API_BASE = 'http://localhost:5000/api'
+const SESSION_KEY = 'petlinker_session'
+const TOKEN_KEY = 'petlinker_token'
+const API_BASE = 'http://localhost:5000/api/v1'
 
 const initialStats = [
   { label: 'Animals in Shelters', key: 'animalsInShelters', value: 0 },
@@ -70,7 +70,7 @@ function App() {
       <Route
         path="/portal/*"
         element={
-          <ProtectedRoute session={session}>
+          <ProtectedRoute>
             <PortalRouter session={session} onLogout={auth.logout} />
           </ProtectedRoute>
         }
@@ -80,8 +80,37 @@ function App() {
   )
 }
 
-function ProtectedRoute({ session, children }) {
-  if (!session) return <Navigate to="/login" replace />
+function ProtectedRoute({ children }) {
+  const [status, setStatus] = useState('checking')
+
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY)
+    const sessionRaw = localStorage.getItem(SESSION_KEY)
+    if (!token || !sessionRaw) {
+      setStatus('fail')
+      return
+    }
+    fetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (!res.ok) throw new Error('Invalid token')
+        return res.json()
+      })
+      .then(() => setStatus('ok'))
+      .catch(() => {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(SESSION_KEY)
+        setStatus('fail')
+      })
+  }, [])
+
+  if (status === 'checking') {
+    return (
+      <section className="auth-wrap">
+        <div className="auth-card"><p>Verifying session...</p></div>
+      </section>
+    )
+  }
+  if (status === 'fail') return <Navigate to="/login" replace />
   return children
 }
 
@@ -110,6 +139,11 @@ function LoginPage({ auth }) {
 
   return (
     <section className="auth-wrap">
+      <div className="auth-brand">
+        <span className="brand-icon" aria-hidden>🐾</span>
+        <h1>PetLinker</h1>
+        <p>Animal welfare, connected.</p>
+      </div>
       <form className="auth-card" onSubmit={onSubmit}>
         <h2>Login</h2>
         <p>Access User or Staff portal.</p>
@@ -150,12 +184,17 @@ function SignupPage({ auth }) {
 
   return (
     <section className="auth-wrap">
+      <div className="auth-brand">
+        <span className="brand-icon" aria-hidden>🐾</span>
+        <h1>PetLinker</h1>
+        <p>Join the rescue network.</p>
+      </div>
       <form className="auth-card" onSubmit={onSubmit}>
         <h2>Signup</h2>
         <p>Create a new account.</p>
         <input placeholder="Full Name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input placeholder="Email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-        <input placeholder="Password" type="password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+        <input placeholder="Password" type="password" required minLength={6} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
           <option value="user">User</option>
           <option value="staff">Staff</option>
@@ -173,7 +212,7 @@ function SignupPage({ auth }) {
 
 function StaffPortal({ onLogout }) {
   return (
-    <PortalLayout title="AWO Staff Portal" onLogout={onLogout} navItems={[
+    <PortalLayout portalType="staff" onLogout={onLogout} navItems={[
       { to: '/portal/dashboard', label: 'Dashboard' },
       { to: '/portal/animals', label: 'Animals' },
       { to: '/portal/adoptions', label: 'Adoptions Review' },
@@ -202,7 +241,7 @@ function StaffPortal({ onLogout }) {
 
 function UserPortal({ onLogout }) {
   return (
-    <PortalLayout title="AWO User Portal" onLogout={onLogout} navItems={[
+    <PortalLayout portalType="user" onLogout={onLogout} navItems={[
       { to: '/portal/animals', label: 'Browse Animals' },
       { to: '/portal/adoptions', label: 'My Adoptions' },
       { to: '/portal/rescues', label: 'Report Rescue' },
@@ -221,11 +260,21 @@ function UserPortal({ onLogout }) {
   )
 }
 
-function PortalLayout({ title, onLogout, navItems, children }) {
+function PortalLayout({ portalType, onLogout, navItems, children }) {
+  const isStaff = portalType === 'staff'
   return (
-    <div className="layout">
+    <div className={`layout ${isStaff ? 'layout-staff' : 'layout-user'}`}>
       <aside className="sidebar">
-        <h1>{title}</h1>
+        <div className="sidebar-brand">
+          <span className="brand-icon" aria-hidden>🐾</span>
+          <div>
+            <h1>PetLinker</h1>
+            <p className="sidebar-subtitle">{isStaff ? 'Staff Portal' : 'User Portal'}</p>
+          </div>
+        </div>
+        <span className={`role-badge ${isStaff ? 'role-staff' : 'role-user'}`}>
+          {isStaff ? 'Staff' : 'User'}
+        </span>
         <nav>
           {navItems.map((item) => (
             <NavItem key={item.to} to={item.to} label={item.label} />
@@ -250,6 +299,7 @@ function useProtectedList(endpoint, key) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -271,9 +321,10 @@ function useProtectedList(endpoint, key) {
     }
 
     fetchItems()
-  }, [endpoint, key])
+  }, [endpoint, key, tick])
 
-  return { items, loading, error }
+  const reload = () => setTick((n) => n + 1)
+  return { items, loading, error, reload }
 }
 
 function DashboardPage() {
@@ -322,7 +373,7 @@ function DashboardPage() {
       {error && <section className="card"><p className="error">{error}</p></section>}
       <section className="stats-grid">
         {stats.map((s) => (
-          <article key={s.key} className="card">
+          <article key={s.key} className={`card stat-card stat-${s.key}`}>
             <p className="label">{s.label}</p>
             <p className="value">{loading ? '...' : s.value}</p>
           </article>
@@ -373,6 +424,8 @@ function AnimalsPage() {
       <Table
         headers={['ID', 'Name', 'Species', 'Shelter', 'Status']}
         rows={animals.map((a) => [a.id, a.name, a.species, a.shelter, a.status])}
+        emptyMessage="No animals registered in the system yet."
+        emptyIcon="🐾"
       />
     </section>
   )
@@ -444,6 +497,12 @@ function AdoptionsPage({ canManage = false }) {
           {showHistory ? 'Hide History' : 'View History'}
         </button>
       )}
+      {activeAdoptions.length === 0 ? (
+        <EmptyState
+          icon="🐾"
+          message={canManage ? 'No pending adoption requests right now.' : 'Adopt a pet from Browse Animals to see your requests here.'}
+        />
+      ) : (
       <div className="table-wrap">
         <table>
           <thead>
@@ -475,9 +534,13 @@ function AdoptionsPage({ canManage = false }) {
           </tbody>
         </table>
       </div>
+      )}
       {canManage && showHistory && (
         <>
           <h3 style={{ marginTop: '1rem' }}>Adoptions History</h3>
+          {historyAdoptions.length === 0 ? (
+            <EmptyState icon="📋" message="No completed adoption history yet." />
+          ) : (
           <div className="table-wrap">
             <table>
               <thead>
@@ -498,6 +561,7 @@ function AdoptionsPage({ canManage = false }) {
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
     </section>
@@ -516,7 +580,7 @@ function RescuesPage({ canManage = false }) {
     setRescues(fetchedRescues)
   }, [fetchedRescues])
 
-  const markResolved = async (reportId) => {
+  const updateStatus = async (reportId, status) => {
     setActionMsg('')
     setActionErr('')
     try {
@@ -527,12 +591,30 @@ function RescuesPage({ canManage = false }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status: 'Resolved' }),
+        body: JSON.stringify({ status }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to update rescue report.')
       setActionMsg(data.message || 'Rescue report updated.')
-      setRescues((prev) => prev.map((r) => (r.id === reportId ? { ...r, status: 'Resolved' } : r)))
+      setRescues((prev) => prev.map((r) => (r.id === reportId ? { ...r, status } : r)))
+    } catch (err) {
+      setActionErr(err.message)
+    }
+  }
+
+  const deleteReport = async (reportId) => {
+    setActionMsg('')
+    setActionErr('')
+    try {
+      const token = localStorage.getItem(TOKEN_KEY)
+      const res = await fetch(`${API_BASE}/rescues/${reportId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Failed to delete rescue report.')
+      setActionMsg(data.message || 'Rescue report deleted.')
+      setRescues((prev) => prev.filter((r) => r.id !== reportId))
     } catch (err) {
       setActionErr(err.message)
     }
@@ -575,6 +657,12 @@ function RescuesPage({ canManage = false }) {
           <p>{selectedDescription}</p>
         </section>
       )}
+      {activeRescues.length === 0 ? (
+        <EmptyState
+          icon="🆘"
+          message={canManage ? 'No active rescue reports at the moment.' : 'Submit a rescue report to see it listed here.'}
+        />
+      ) : (
       <div className="table-wrap">
         <table>
           <thead>
@@ -605,11 +693,13 @@ function RescuesPage({ canManage = false }) {
                 <td>{r.status}</td>
                 {canManage && (
                   <td>
-                    {r.status !== 'Resolved' ? (
-                      <button className="btn-success" onClick={() => markResolved(r.id)}>Mark Resolved</button>
-                    ) : (
-                      'Done'
+                    {r.status === 'Pending' && (
+                      <button className="btn-secondary" onClick={() => updateStatus(r.id, 'Ongoing')}>Start</button>
                     )}
+                    {r.status !== 'Resolved' && (
+                      <button className="btn-success" onClick={() => updateStatus(r.id, 'Resolved')}>Resolve</button>
+                    )}
+                    <button className="btn-danger" onClick={() => deleteReport(r.id)}>Delete</button>
                   </td>
                 )}
               </tr>
@@ -617,9 +707,13 @@ function RescuesPage({ canManage = false }) {
           </tbody>
         </table>
       </div>
+      )}
       {canManage && showHistory && (
         <>
           <h3 style={{ marginTop: '1rem' }}>Rescue History</h3>
+          {historyRescues.length === 0 ? (
+            <EmptyState icon="📋" message="No resolved rescue reports in history yet." />
+          ) : (
           <div className="table-wrap">
             <table>
               <thead>
@@ -644,6 +738,7 @@ function RescuesPage({ canManage = false }) {
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
     </section>
@@ -652,118 +747,257 @@ function RescuesPage({ canManage = false }) {
 
 function UserAdoptionsPage() {
   const { items: adoptions, loading, error } = useProtectedList('adoptions/mine', 'adoptions')
-  if (loading) return <section className="card"><h2>My Adoptions</h2><p>Loading your adoptions...</p></section>
-  if (error) return <section className="card"><h2>My Adoptions</h2><p className="error">{error}</p></section>
+  if (loading) return <>
+    <header className="page-header"><h2>My Adoptions</h2><p>View your adoption requests and their status.</p></header>
+    <section className="card"><h2>My Adoptions</h2><p>Loading your adoptions...</p></section>
+  </>
+  if (error) return <>
+    <header className="page-header"><h2>My Adoptions</h2><p>View your adoption requests and their status.</p></header>
+    <section className="card"><h2>My Adoptions</h2><p className="error">{error}</p></section>
+  </>
   return (
-    <section className="card">
-      <h2>My Adoptions</h2>
-      <Table
-        headers={['Animal', 'Status']}
-        rows={adoptions.map((a) => [a.animal, a.status])}
-      />
-    </section>
+    <>
+      <header className="page-header">
+        <h2>My Adoptions</h2>
+        <p>View your adoption requests and their status.</p>
+      </header>
+      <section className="card">
+        <h2>My Adoptions</h2>
+        <Table
+          headers={['Animal', 'Status']}
+          rows={adoptions.map((a) => [a.animal, a.status])}
+          emptyMessage="Adopt a pet from Browse Animals to see your requests here."
+          emptyIcon="🐶"
+        />
+      </section>
+    </>
   )
 }
 
 function UserLicensesPage() {
   const { items: licenses, loading, error } = useProtectedList('licenses/mine', 'licenses')
-  if (loading) return <section className="card"><h2>My Pet Licenses</h2><p>Loading your licenses...</p></section>
-  if (error) return <section className="card"><h2>My Pet Licenses</h2><p className="error">{error}</p></section>
+  if (loading) return <>
+    <header className="page-header"><h2>My Pet Licenses</h2><p>Manage your pet licenses.</p></header>
+    <section className="card"><h2>My Pet Licenses</h2><p>Loading your licenses...</p></section>
+  </>
+  if (error) return <>
+    <header className="page-header"><h2>My Pet Licenses</h2><p>Manage your pet licenses.</p></header>
+    <section className="card"><h2>My Pet Licenses</h2><p className="error">{error}</p></section>
+  </>
+  return (
+    <>
+      <header className="page-header">
+        <h2>My Pet Licenses</h2>
+        <p>Manage your pet licenses.</p>
+      </header>
+      <section className="card">
+        <h2>My Pet Licenses</h2>
+        <Table
+          headers={['Animal', 'Status', 'Issue Date', 'Expiry Date']}
+          rows={licenses.map((l) => [l.animal, l.status, l.issueDate, l.expiryDate])}
+          emptyMessage="No pet licenses on file yet. Licenses appear here after registration."
+          emptyIcon="📄"
+        />
+      </section>
+    </>
+  )
+}
+
+function UserDashboardPage() {
+  const session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
+  const { items: rescues, loading, error } = useProtectedList('rescues/mine', 'rescues')
+
   return (
     <section className="card">
-      <h2>My Pet Licenses</h2>
-      <Table
-        headers={['Animal', 'Status', 'Issue Date', 'Expiry Date']}
-        rows={licenses.map((l) => [l.animal, l.status, l.issueDate, l.expiryDate])}
-      />
+      <h2>User Dashboard</h2>
+      <p>Welcome, {session?.name || 'User'}. JWT-protected area.</p>
+      {loading && <p>Loading your stats...</p>}
+      {error && <p className="error">{error}</p>}
+      {!loading && !error && (
+        <ul>
+          <li>Your rescue reports: <strong>{rescues.length}</strong></li>
+          <li>Pending: <strong>{rescues.filter((r) => r.status === 'Pending').length}</strong></li>
+        </ul>
+      )}
     </section>
   )
 }
 
 function UserRescuesPage() {
-  const { items: fetchedRescues, loading, error } = useProtectedList('rescues/mine', 'rescues')
+  const { items: fetchedRescues, loading, error, reload } = useProtectedList('rescues/mine', 'rescues')
   const [rescues, setRescues] = useState([])
   const [location, setLocation] = useState('')
   const [description, setDescription] = useState('')
   const [urgency, setUrgency] = useState('Medium')
   const [submitMsg, setSubmitMsg] = useState('')
   const [submitErr, setSubmitErr] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ location: '', description: '', urgency: 'Medium' })
+  const [actionMsg, setActionMsg] = useState('')
+  const [actionErr, setActionErr] = useState('')
 
   useEffect(() => {
     setRescues(fetchedRescues)
   }, [fetchedRescues])
+
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`,
+  })
 
   const submitReport = async (e) => {
     e.preventDefault()
     setSubmitMsg('')
     setSubmitErr('')
     try {
-      const token = localStorage.getItem(TOKEN_KEY)
       const res = await fetch(`${API_BASE}/rescues`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: authHeaders(),
         body: JSON.stringify({ location, description, urgency }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to submit report.')
-      setSubmitMsg('Rescue report submitted.')
+      setSubmitMsg(data.message || 'Rescue report submitted.')
       setLocation('')
       setDescription('')
       setUrgency('Medium')
-      setRescues((prev) => [
-        ...prev,
-        {
-          id: `new-${Date.now()}`,
-          area: location,
-          description: description || '',
-          urgency,
-          status: 'Pending',
-        },
-      ])
+      if (data.rescue) setRescues((prev) => [...prev, data.rescue])
+      else reload?.()
     } catch (err) {
       setSubmitErr(err.message)
     }
   }
 
+  const startEdit = (report) => {
+    setEditingId(report.id)
+    setEditForm({
+      location: report.area,
+      description: report.description || '',
+      urgency: report.urgency,
+    })
+    setActionMsg('')
+    setActionErr('')
+  }
+
+  const saveEdit = async (reportId) => {
+    setActionMsg('')
+    setActionErr('')
+    try {
+      const res = await fetch(`${API_BASE}/rescues/${reportId}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify(editForm),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Failed to update report.')
+      setActionMsg(data.message || 'Report updated.')
+      setEditingId(null)
+      setRescues((prev) => prev.map((r) => (r.id === reportId ? (data.rescue || { ...r, area: editForm.location, description: editForm.description, urgency: editForm.urgency }) : r)))
+    } catch (err) {
+      setActionErr(err.message)
+    }
+  }
+
+  const deleteReport = async (reportId) => {
+    setActionMsg('')
+    setActionErr('')
+    try {
+      const res = await fetch(`${API_BASE}/rescues/${reportId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}` },
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Failed to delete report.')
+      setActionMsg(data.message || 'Report deleted.')
+      setRescues((prev) => prev.filter((r) => r.id !== reportId))
+    } catch (err) {
+      setActionErr(err.message)
+    }
+  }
+
   return (
     <>
-      <section className="card">
+      <header className="page-header">
         <h2>Report Rescue</h2>
+        <p>Help animals in need by reporting rescue operations.</p>
+      </header>
+      <section className="card">
+        <h2>Create Rescue Report</h2>
         <form className="inline-form" onSubmit={submitReport}>
-          <input
-            placeholder="Rescue location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            required
-          />
-          <input
-            placeholder="Short description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+          <input placeholder="Rescue location" value={location} onChange={(e) => setLocation(e.target.value)} required />
+          <input placeholder="Short description" value={description} onChange={(e) => setDescription(e.target.value)} />
           <select value={urgency} onChange={(e) => setUrgency(e.target.value)}>
             <option value="Low">Low</option>
             <option value="Medium">Medium</option>
             <option value="High">High</option>
           </select>
-          <button type="submit">Submit Report</button>
+          <button type="submit">Create</button>
         </form>
         {submitMsg && <p className="success">{submitMsg}</p>}
         {submitErr && <p className="error">{submitErr}</p>}
       </section>
 
-      {loading && <section className="card"><h2>My Rescue Reports</h2><p>Loading your reports...</p></section>}
+      {loading && <section className="card"><h2>My Rescue Reports</h2><p>Loading...</p></section>}
       {error && <section className="card"><h2>My Rescue Reports</h2><p className="error">{error}</p></section>}
       {!loading && !error && (
         <section className="card">
-          <h2>My Rescue Reports</h2>
-          <Table
-            headers={['Report ID', 'Location', 'Description', 'Urgency', 'Status']}
-            rows={rescues.map((r, idx) => [idx + 1, r.area, r.description || '-', r.urgency, r.status])}
-          />
+          <h2>My Rescue Reports (Read / Update / Delete)</h2>
+          {actionMsg && <p className="success">{actionMsg}</p>}
+          {actionErr && <p className="error">{actionErr}</p>}
+          {rescues.length === 0 ? (
+            <EmptyState
+              icon="🆘"
+              message="No rescue reports yet. Submit one using the form above."
+            />
+          ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Location</th>
+                  <th>Description</th>
+                  <th>Urgency</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rescues.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.id}</td>
+                    <td>{editingId === r.id ? <input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} /> : r.area}</td>
+                    <td>{editingId === r.id ? <input value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} /> : (r.description || '-')}</td>
+                    <td>
+                      {editingId === r.id ? (
+                        <select value={editForm.urgency} onChange={(e) => setEditForm({ ...editForm, urgency: e.target.value })}>
+                          <option value="Low">Low</option>
+                          <option value="Medium">Medium</option>
+                          <option value="High">High</option>
+                        </select>
+                      ) : r.urgency}
+                    </td>
+                    <td>{r.status}</td>
+                    <td>
+                      {r.status === 'Pending' && editingId !== r.id && (
+                        <>
+                          <button className="btn-secondary" type="button" onClick={() => startEdit(r)}>Edit</button>
+                          <button className="btn-danger" type="button" onClick={() => deleteReport(r.id)}>Delete</button>
+                        </>
+                      )}
+                      {editingId === r.id && (
+                        <>
+                          <button className="btn-success" type="button" onClick={() => saveEdit(r.id)}>Save</button>
+                          <button className="btn-secondary" type="button" onClick={() => setEditingId(null)}>Cancel</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          )}
         </section>
       )}
     </>
@@ -830,59 +1064,70 @@ function UserAnimalsPage() {
 
   return (
     <>
+      <header className="page-header">
+        <h2>Browse Animals</h2>
+        <p>Find your perfect companion from shelters near you.</p>
+      </header>
       <section className="card">
-        <h2>Browse Animals by Shelter</h2>
-        <p>Select a shelter from the list:</p>
-        <div className="shelter-list">
-          {shelters.map((s) => (
-            <button
-              key={s.id}
-              className={`shelter-item ${String(s.id) === String(selectedShelter) ? 'active' : ''}`}
-              onClick={() => setSelectedShelter(String(s.id))}
-            >
-              {s.name} ({s.location})
-            </button>
-          ))}
-        </div>
+        <h2>Browse Animals</h2>
+        <p className="page-desc">Pick a shelter below to see pets available for adoption.</p>
+
+        {shelters.length === 0 ? (
+          <EmptyState icon="🏠" message="No shelters are listed yet. Check back soon." />
+        ) : (
+          <div className="shelter-picker-vertical">
+            {shelters.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`shelter-option ${String(s.id) === String(selectedShelter) ? 'active' : ''}`}
+                onClick={() => setSelectedShelter(String(s.id))}
+              >
+                <span className="shelter-option-name">{s.name}</span>
+                <span className="shelter-option-meta">
+                  {s.location || 'Location not set'} · {s.occupancy ?? 0} animal{(s.occupancy ?? 0) === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!selectedShelter && shelters.length > 0 && (
+          <EmptyState icon="🐾" message="Select a shelter above to browse animals available for adoption." />
+        )}
       </section>
 
-      {selectedShelter && loadingAnimals && <section className="card"><p>Loading animals...</p></section>}
+      {selectedShelter && loadingAnimals && (
+        <section className="card"><p className="muted-loading">Loading animals...</p></section>
+      )}
       {animalsError && <section className="card"><p className="error">{animalsError}</p></section>}
+
       {selectedShelter && !loadingAnimals && !animalsError && (
         <section className="card">
-          <h2>Animals in Selected Shelter</h2>
+          <h2>Available Pets</h2>
           {adoptMsg && <p className="success">{adoptMsg}</p>}
           {adoptErr && <p className="error">{adoptErr}</p>}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Species</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {animals.map((a, idx) => (
-                  <tr key={a.id}>
-                    <td>{idx + 1}</td>
-                    <td>{a.name}</td>
-                    <td>{a.species}</td>
-                    <td>{a.status}</td>
-                    <td>
-                      {a.status === 'Available' ? (
-                        <button onClick={() => requestAdoption(a.id)}>Adopt</button>
-                      ) : (
-                        'N/A'
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {animals.length === 0 ? (
+            <EmptyState icon="🐕" message="No animals in this shelter right now. Try another shelter." />
+          ) : (
+            <div className="animal-list-vertical">
+              {animals.map((a) => (
+                <article key={a.id} className="animal-card">
+                  <div className="animal-card-info">
+                    <h3>{a.name}</h3>
+                    <p className="animal-card-meta">{a.species} · {a.status}</p>
+                  </div>
+                  {a.status === 'Available' ? (
+                    <button className="btn-success adopt-btn" type="button" onClick={() => requestAdoption(a.id)}>
+                      Request Adoption
+                    </button>
+                  ) : (
+                    <span className="empty-state-inline">Not available</span>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       )}
     </>
@@ -998,6 +1243,8 @@ function DonationsPage({ mineOnly = false, allowDonate = true }) {
         <Table
           headers={['Donor', 'Amount', 'Date', 'Shelter']}
           rows={donations.map((d) => [d.donor, `$${d.amount}`, d.date, d.shelter])}
+          emptyMessage="No donations recorded yet."
+          emptyIcon="💝"
         />
       </section>
     </>
@@ -1014,6 +1261,8 @@ function SheltersPage() {
       <Table
         headers={['ID', 'Name', 'Location', 'Capacity', 'Occupancy']}
         rows={shelters.map((s) => [s.id, s.name, s.location, s.capacity, s.occupancy])}
+        emptyMessage="No shelters registered yet."
+        emptyIcon="🏠"
       />
     </section>
   )
@@ -1029,6 +1278,8 @@ function StaffPage() {
       <Table
         headers={['ID', 'Name', 'Role', 'Contact', 'Shelter']}
         rows={staff.map((s) => [s.id, s.name, s.role, s.contact, s.shelter])}
+        emptyMessage="No staff members listed yet."
+        emptyIcon="👥"
       />
     </section>
   )
@@ -1044,6 +1295,8 @@ function LicensesPage() {
       <Table
         headers={['ID', 'Owner', 'Animal', 'Status', 'Issue Date', 'Expiry Date']}
         rows={licenses.map((l) => [l.id, l.ownername, l.animal, l.status, l.issueDate, l.expiryDate])}
+        emptyMessage="No pet licenses on record yet."
+        emptyIcon="📄"
       />
     </section>
   )
@@ -1059,13 +1312,24 @@ function MedicalPage() {
       <Table
         headers={['Record ID', 'Animal', 'Treatment', 'Vaccination Date', 'Next Checkup', 'Vet']}
         rows={records.map((r) => [r.id, r.animal, r.treatment, r.vaccinationDate, r.nextCheckupDate, r.vet])}
+        emptyMessage="No medical records added yet."
+        emptyIcon="🩺"
       />
     </section>
   )
 }
 
-function Table({ headers, rows }) {
-  const statusValues = new Set(['Pending', 'Ongoing', 'Resolved', 'Approved', 'Rejected', 'Available', 'Adopted', 'Medical Care', 'Quarantined', 'Expired', 'Valid'])
+function EmptyState({ message, icon = '📋' }) {
+  return (
+    <div className="empty-state">
+      <span className="empty-icon" aria-hidden>{icon}</span>
+      <p>{message}</p>
+    </div>
+  )
+}
+
+function Table({ headers, rows, emptyMessage, emptyIcon }) {
+  const statusValues = new Set(['Pending', 'Ongoing', 'Resolved', 'Approved', 'Rejected', 'Available', 'Adopted', 'Medical Care', 'Quarantined', 'Expired', 'Valid', 'Active', 'Low', 'Medium', 'High'])
 
   const renderCell = (cell) => {
     if (typeof cell === 'string' && statusValues.has(cell)) {
@@ -1073,6 +1337,10 @@ function Table({ headers, rows }) {
       return <span className={`status-pill ${cls}`}>{cell}</span>
     }
     return cell
+  }
+
+  if (!rows.length && emptyMessage) {
+    return <EmptyState message={emptyMessage} icon={emptyIcon} />
   }
 
   return (

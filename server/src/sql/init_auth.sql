@@ -6,4 +6,3 @@ CREATE TABLE IF NOT EXISTS app_user (
     role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'staff')),
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
-
